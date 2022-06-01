@@ -50,29 +50,21 @@ fn main() {
             .unwrap_or("miscellaneous")
             .to_owned();
 
-        let total = if args.aggregate {
-            totals_by_ext.entry(ext).or_insert(CodeInfo {
-                lines: 0,
-                blanks: 0,
-            })
+        let counter = if args.aggregate {
+            totals_by_ext.entry(ext).or_insert(total) // Copy total, which is 0'ed
         } else {
             &mut total
         };
 
-        loop {
-            match reader.read_line(&mut line) {
-                Ok(bytes) => {
-                    if bytes == 0 {
-                        break;
-                    }
-                    if line.starts_with('\n') {
-                        total.blanks += 1;
-                    }
-                    total.lines += 1;
-                    line.clear();
-                }
-                Err(_) => break,
+        while let Ok(bytes) = reader.read_line(&mut line) {
+            if bytes == 0 {
+                break;
             }
+            if bytes == 1 {
+                counter.blanks += 1;
+            }
+            counter.lines += 1;
+            line.clear();
         }
     }
 
