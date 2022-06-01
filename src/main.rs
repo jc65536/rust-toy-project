@@ -1,4 +1,5 @@
 use std::collections::hash_map::HashMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -17,45 +18,58 @@ struct Args {
     aggregate: bool,
 }
 
-struct LineInfo {
-    count: i32,
-    blank_count: i32,
+#[derive(Clone, Copy)]
+struct CodeInfo {
+    lines: i32,
+    blanks: i32,
+}
+
+fn output(info: CodeInfo, ext: Option<&String>) {
+    let ext_info = ext.map_or(String::new(), |ext| format!(" in {} files", ext));
+    let pct = 100. * info.blanks as f64 / info.lines as f64;
+    println!("There are {} lines of code{}.", info.lines, ext_info);
+    println!("There are {} empty lines{}.", info.blanks, ext_info);
+    println!("{:.2}% of the lines{} are empty.", pct, ext_info);
 }
 
 fn main() {
     let args = Args::parse();
-    let mut ext_totals: HashMap<String, LineInfo> = HashMap::new();
-    let mut all_total = LineInfo {
-        count: 0,
-        blank_count: 0,
+    let mut totals_by_ext: HashMap<String, CodeInfo> = HashMap::new();
+    let mut total = CodeInfo {
+        lines: 0,
+        blanks: 0,
     };
 
     for filename in RecDir::new(&args.dir) {
         let file = fs::File::open(&filename).expect("Error opening file.");
         let mut reader = BufReader::new(&file);
         let mut line = String::new();
-        let ext = filename.extension().map(|os_str| os_str.to_str()).flatten().unwrap_or("miscellaneous").to_owned();
+        let ext = filename
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or("miscellaneous")
+            .to_owned();
 
         let total = if args.aggregate {
-            ext_totals.entry(ext).or_insert(LineInfo {
-                count: 0,
-                blank_count: 0,
+            totals_by_ext.entry(ext).or_insert(CodeInfo {
+                lines: 0,
+                blanks: 0,
             })
         } else {
-            &mut all_total
+            &mut total
         };
 
         loop {
             match reader.read_line(&mut line) {
-                Ok(v) => {
-                    if v == 0 {
+                Ok(bytes) => {
+                    if bytes == 0 {
                         break;
                     }
                     if line.starts_with('\n') {
-                        total.blank_count += 1;
+                        total.blanks += 1;
                     }
-                    line = String::new();
-                    total.count += 1;
+                    total.lines += 1;
+                    line.clear();
                 }
                 Err(_) => break,
             }
@@ -63,23 +77,10 @@ fn main() {
     }
 
     if args.aggregate {
-        for pair in ext_totals.iter() {
-            let ext = pair.0;
-            let total = pair.1;
-            println!("There are {} lines of code in {} files.", total.count, ext);
-            println!("There are {} empty lines in {} files.", total.blank_count, ext);
-            println!(
-                "{:.2}% of the lines in {} files are empty.",
-                100. * total.blank_count as f64 / total.count as f64,
-                ext
-            );
+        for pair in totals_by_ext.iter() {
+            output(pair.1.to_owned(), Some(pair.0));
         }
     } else {
-        println!("There are {} lines of code.", all_total.count);
-        println!("There are {} empty lines.", all_total.blank_count);
-        println!(
-            "{:.2}% of the lines are empty.",
-            100. * all_total.blank_count as f64 / all_total.count as f64
-        );
+        output(total, None);
     }
 }
