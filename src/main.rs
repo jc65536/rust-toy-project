@@ -24,7 +24,7 @@ struct CodeInfo {
     blanks: i32,
 }
 
-fn output(info: CodeInfo, ext: Option<&String>) {
+fn output(info: CodeInfo, ext: Option<&str>) {
     let ext_info = ext.map_or(String::new(), |ext| format!(" in {} files", ext));
     let pct = 100. * info.blanks as f64 / info.lines as f64;
     println!("There are {} lines of code{}.", info.lines, ext_info);
@@ -39,6 +39,7 @@ fn main() {
         lines: 0,
         blanks: 0,
     };
+    let mut misc_files = false;
 
     for filename in RecDir::new(&args.dir) {
         let file = fs::File::open(&filename).expect("Error opening file.");
@@ -47,12 +48,12 @@ fn main() {
         let ext = filename
             .extension()
             .and_then(OsStr::to_str)
-            .unwrap_or("miscellaneous")
-            .to_owned();
+            .map(str::to_owned);
 
-        let counter = if args.aggregate {
-            totals_by_ext.entry(ext).or_insert(total) // Copy total, which is 0'ed
+        let counter = if args.aggregate && ext.is_some() {
+            totals_by_ext.entry(ext.unwrap()).or_insert(total) // Copy total, which is 0'ed
         } else {
+            misc_files = true;
             &mut total
         };
 
@@ -71,6 +72,9 @@ fn main() {
     if args.aggregate {
         for pair in totals_by_ext.iter() {
             output(pair.1.to_owned(), Some(pair.0));
+        }
+        if misc_files {
+            output(total, Some("miscellaneous"));
         }
     } else {
         output(total, None);
