@@ -20,6 +20,9 @@ struct Args {
     /// Aggregate files with the same extension
     #[clap(short = 'A')]
     aggregate: bool,
+    /// Number of threads to use
+    #[clap(short = 'j', long = "threads", default_value = "1")]
+    threads: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -48,52 +51,50 @@ fn main() {
     let file_iterator = Arc::new(Mutex::new(RecDir::new(&args.dir)));
     let mut handles: Vec<JoinHandle<()>> = Vec::new();
 
-    for _ in 1..4 {
+    for _ in 0..args.threads {
         let totals_by_ext = Arc::clone(&totals_by_ext);
         let total = Arc::clone(&total);
         let misc_files = Arc::clone(&misc_files);
         let file_iterator = Arc::clone(&file_iterator);
-        handles.push(thread::spawn(move || {
-            loop {
-                let mut file_iterator_guard = file_iterator.lock().unwrap();
-                let filename = file_iterator_guard.next();
-                drop(file_iterator_guard);
-                if filename.is_none() {
+        handles.push(thread::spawn(move || loop {
+            let mut file_iterator_guard = file_iterator.lock().unwrap();
+            let filename = file_iterator_guard.next();
+            drop(file_iterator_guard);
+            if filename.is_none() {
+                break;
+            }
+            let filename = filename.unwrap();
+            let file = fs::File::open(&filename).expect("Error opening file.");
+            let mut reader = BufReader::new(&file);
+            let mut line = String::new();
+            let ext = filename
+                .extension()
+                .and_then(OsStr::to_str)
+                .map(str::to_owned);
+
+            let mut totals_by_ext_guard;
+            let mut total_guard;
+            let counter = if args.aggregate && ext.is_some() {
+                totals_by_ext_guard = totals_by_ext.lock().unwrap();
+                totals_by_ext_guard.entry(ext.unwrap()).or_insert(CodeInfo {
+                    lines: 0,
+                    blanks: 0,
+                })
+            } else {
+                *misc_files.lock().unwrap() = false;
+                total_guard = total.lock().unwrap();
+                &mut total_guard
+            };
+
+            while let Ok(bytes) = reader.read_line(&mut line) {
+                if bytes == 0 {
                     break;
                 }
-                let filename = filename.unwrap();
-                let file = fs::File::open(&filename).expect("Error opening file.");
-                let mut reader = BufReader::new(&file);
-                let mut line = String::new();
-                let ext = filename
-                    .extension()
-                    .and_then(OsStr::to_str)
-                    .map(str::to_owned);
-
-                let mut totals_by_ext_guard;
-                let mut total_guard;
-                let counter = if args.aggregate && ext.is_some() {
-                    totals_by_ext_guard = totals_by_ext.lock().unwrap();
-                    totals_by_ext_guard.entry(ext.unwrap()).or_insert(CodeInfo {
-                        lines: 0,
-                        blanks: 0,
-                    })
-                } else {
-                    *misc_files.lock().unwrap() = false;
-                    total_guard = total.lock().unwrap();
-                    &mut total_guard
-                };
-
-                while let Ok(bytes) = reader.read_line(&mut line) {
-                    if bytes == 0 {
-                        break;
-                    }
-                    if bytes == 1 {
-                        counter.blanks += 1;
-                    }
-                    counter.lines += 1;
-                    line.clear();
+                if bytes == 1 {
+                    counter.blanks += 1;
                 }
+                counter.lines += 1;
+                line.clear();
             }
         }));
     }
