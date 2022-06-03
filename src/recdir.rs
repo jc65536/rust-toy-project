@@ -2,6 +2,7 @@ use std::fs;
 use std::fs::ReadDir;
 use std::path::PathBuf;
 
+/// Iterates through a directory recursively
 pub struct RecDir {
     stack: Vec<PathBuf>,
     entries: ReadDir,
