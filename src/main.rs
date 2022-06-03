@@ -106,7 +106,7 @@ fn main() {
                     .or_insert(CodeInfo::new())
                     .add(counter);
             } else {
-                *misc_files.lock().unwrap() = false;
+                *misc_files.lock().unwrap() = true;
                 total.lock().unwrap().add(counter);
             }
         }));
