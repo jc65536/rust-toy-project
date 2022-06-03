@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [[ $1 == "par" ]]; then
+    options="-j 4"
+fi
+
+{
+echo "scale = 3"
+echo "total = 0"
+for i in {1..10}; do
+    time=$({ time cargo run -- test $options; } 2>&1 | grep "real" | cut -f 2 | sed -E 's/^0m|s$//g')
+    echo "total += $time"
+done
+echo "total / 10"
+} | bc

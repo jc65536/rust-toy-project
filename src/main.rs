@@ -31,6 +31,19 @@ struct CodeInfo {
     blanks: i32,
 }
 
+impl CodeInfo {
+    fn new() -> Self {
+        CodeInfo {
+            lines: 0,
+            blanks: 0,
+        }
+    }
+    fn add(&mut self, o: Self) {
+        self.lines += o.lines;
+        self.blanks += o.blanks;
+    }
+}
+
 fn output(info: CodeInfo, ext: Option<&str>) {
     let ext_info = ext.map_or(String::new(), |ext| format!(" in {} files", ext));
     let pct = 100. * info.blanks as f64 / info.lines as f64;
@@ -43,6 +56,8 @@ fn main() {
     let args = Args::parse();
     let totals_by_ext: HashMap<String, CodeInfo> = HashMap::new();
     let totals_by_ext = Arc::new(Mutex::new(totals_by_ext));
+    // total is used to count lines in all files normally, or lines in
+    // miscellaneous files (files without extension) if -A is on
     let total = Arc::new(Mutex::new(CodeInfo {
         lines: 0,
         blanks: 0,
@@ -57,34 +72,20 @@ fn main() {
         let misc_files = Arc::clone(&misc_files);
         let file_iterator = Arc::clone(&file_iterator);
         handles.push(thread::spawn(move || loop {
-            let mut file_iterator_guard = file_iterator.lock().unwrap();
-            let filename = file_iterator_guard.next();
-            drop(file_iterator_guard);
-            if filename.is_none() {
-                break;
-            }
-            let filename = filename.unwrap();
+            let filename = match file_iterator.lock().unwrap().next() {
+                Some(v) => v,
+                None => {
+                    return;
+                }
+            };
             let file = fs::File::open(&filename).expect("Error opening file.");
-            let mut reader = BufReader::new(&file);
+            let mut reader = BufReader::new(file);
             let mut line = String::new();
             let ext = filename
                 .extension()
                 .and_then(OsStr::to_str)
                 .map(str::to_owned);
-
-            let mut totals_by_ext_guard;
-            let mut total_guard;
-            let counter = if args.aggregate && ext.is_some() {
-                totals_by_ext_guard = totals_by_ext.lock().unwrap();
-                totals_by_ext_guard.entry(ext.unwrap()).or_insert(CodeInfo {
-                    lines: 0,
-                    blanks: 0,
-                })
-            } else {
-                *misc_files.lock().unwrap() = false;
-                total_guard = total.lock().unwrap();
-                &mut total_guard
-            };
+            let mut counter = CodeInfo::new();
 
             while let Ok(bytes) = reader.read_line(&mut line) {
                 if bytes == 0 {
@@ -96,6 +97,18 @@ fn main() {
                 counter.lines += 1;
                 line.clear();
             }
+
+            if args.aggregate && ext.is_some() {
+                totals_by_ext
+                    .lock()
+                    .unwrap()
+                    .entry(ext.unwrap())
+                    .or_insert(CodeInfo::new())
+                    .add(counter);
+            } else {
+                *misc_files.lock().unwrap() = false;
+                total.lock().unwrap().add(counter);
+            }
         }));
     }
 
@@ -103,14 +116,12 @@ fn main() {
         handle.join().unwrap();
     }
 
-    let totals_by_ext = totals_by_ext.lock().unwrap();
     let total = *total.lock().unwrap();
-    let misc_files = *misc_files.lock().unwrap();
     if args.aggregate {
-        for pair in totals_by_ext.iter() {
+        for pair in totals_by_ext.lock().unwrap().iter() {
             output(pair.1.to_owned(), Some(pair.0));
         }
-        if misc_files {
+        if *misc_files.lock().unwrap() {
             output(total, Some("miscellaneous"));
         }
     } else {
