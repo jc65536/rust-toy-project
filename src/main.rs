@@ -67,11 +67,14 @@ fn main() {
     let mut handles: Vec<JoinHandle<()>> = Vec::new();
 
     for _ in 0..args.threads {
+        // Clone pointers so that each thread can own a pointer
         let totals_by_ext = Arc::clone(&totals_by_ext);
         let total = Arc::clone(&total);
         let misc_files = Arc::clone(&misc_files);
         let file_iterator = Arc::clone(&file_iterator);
+
         handles.push(thread::spawn(move || loop {
+            // Loops until there are no files left
             let filename = match file_iterator.lock().unwrap().next() {
                 Some(v) => v,
                 None => {

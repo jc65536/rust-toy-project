@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 /// Iterates through a directory recursively
 pub struct RecDir {
-    stack: Vec<PathBuf>,
-    entries: ReadDir,
+    stack: Vec<PathBuf>, // Stack of directories to look at later
+    entries: ReadDir, // Iterates through the current directory
 }
 
 impl RecDir {
@@ -32,6 +32,7 @@ impl Iterator for RecDir {
         } else {
             return None;
         }
+        // Tail recursion ftw
         self.next()
     }
 }
